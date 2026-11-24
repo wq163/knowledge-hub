@@ -1,0 +1,12 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtempSync,rmSync,readdirSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {Store} from '../src/store.mjs';
+import {parse} from '../src/adapters.mjs';
+const lines=(...rows)=>rows.map(r=>JSON.stringify(r)).join('\n');
+const raw=lines({type:'session_meta',payload:{id:'s1'}},{type:'response_item',payload:{type:'message',role:'user',content:[{type:'input_text',text:'测试知识库'}]}});
+test('archive, dedupe, Chinese search, revision and account isolation',()=>{const root=mkdtempSync(join(tmpdir(),'hub-'));const s=new Store(root);try{assert.equal(s.ingest('codex','a',raw),1);assert.equal(s.ingest('codex','a',raw),0);assert.equal(s.search('知识库').length,1);assert.equal(s.search('知识').length,1);assert.equal(s.ingest('codex','b',raw),1);assert.equal(s.search('知识库').length,2);assert.equal(s.ingest('codex','a',raw+'\n'+lines({type:'response_item',payload:{type:'message',role:'assistant',content:[{text:'补充结论'}]}})),1);assert.equal(s.search('补充结论').length,1);assert.equal(readdirSync(join(root,'raw')).length,2);}finally{s.close();rmSync(root,{recursive:true,force:true});}});
+test('ChatGPT active branch; original mapping retained by store',()=>{const raw=JSON.stringify([{id:'c',current_node:'b',mapping:{a:{message:{author:{role:'user'},content:{parts:['Q']}}},b:{parent:'a',message:{author:{role:'assistant'},content:{parts:['A']}}},z:{parent:'a',message:{author:{role:'assistant'},content:{parts:['other']}}}}}]);assert.deepEqual(parse('chatgpt',raw)[0].messages.map(m=>m.text),['Q','A']);});
+test('Claude and Pi basic message formats',()=>{assert.equal(parse('claude',lines({type:'user',sessionId:'s',message:{content:'Hello'}}))[0].messages[0].text,'Hello');assert.equal(parse('pi',lines({type:'session',id:'s'},{type:'message',message:{role:'assistant',content:[{text:'World'}]}}))[0].messages[0].text,'World');});
